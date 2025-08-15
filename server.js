@@ -1,214 +1,176 @@
+
+// ESM server.js (works with "type": "module" in package.json)
 import express from 'express';
 import cors from 'cors';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
 import fs from 'fs';
 import path from 'path';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { fileURLToPath } from 'url';
+import { v4 as uuid } from 'uuid';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'db.json');
+
+// ---------- simple JSON "DB" ----------
+function ensureDB() {
+  if (!fs.existsSync(DB_PATH)) {
+    const init = { users: [], transactions: [], debts: [], settings: {
+      paymentMethods: ["cash","bank","card","cheque","other"],
+      incomeCategories: ["sales","subscriptions","services","interest","other"],
+      expenseCategories: ["salary","rent","maintenance","logistics","purchases","internet","energy","tax","marketing","other"],
+      employees: []
+    }};
+    fs.writeFileSync(DB_PATH, JSON.stringify(init, null, 2));
+  }
+}
+function readDB() { ensureDB(); return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
+function writeDB(db) { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); }
+
+function createToken(user) { return jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' }); }
+function auth(req, res, next) {
+  const hdr = req.headers.authorization || '';
+  const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { return res.status(401).json({ error: 'Invalid token' }); }
+}
 
 const app = express();
 app.use(cors());
-app.use(express.json({limit:'5mb'}));
+app.use(express.json({ limit: '2mb' }));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-secret';
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ''; // for backup endpoints
-const PORT = process.env.PORT || 3000;
-const DB_PATH = process.env.DB_PATH || './data.db';
+app.get('/', (req,res)=> res.json({ ok:true, service:'finance-api', docs:'/docs' }));
+app.get('/docs', (req,res)=> res.type('text').send(`See README`));
 
-// ensure folder exists
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-const db = await open({ filename: DB_PATH, driver: sqlite3.Database });
-
-// bootstrap schema
-const schema = `
-PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  company_name TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS settings (
-  user_id INTEGER PRIMARY KEY,
-  currency TEXT DEFAULT 'ر.س',
-  tax_income REAL DEFAULT 15.0,
-  tax_expense REAL DEFAULT 15.0,
-  monthly_expense_cap REAL DEFAULT 50000.0,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  date TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('income','expense')),
-  category TEXT NOT NULL,
-  base REAL NOT NULL,
-  tax REAL NOT NULL,
-  total REAL NOT NULL,
-  employee TEXT,
-  notes TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_tx_user_date ON transactions(user_id,date);
-
-CREATE TABLE IF NOT EXISTS debts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  date TEXT NOT NULL,
-  employee TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('advance','repay')),
-  amount REAL NOT NULL,
-  delta REAL NOT NULL,
-  notes TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_debt_user_date ON debts(user_id,date);
-`;
-await db.exec(schema);
-
-function sign(user){ return jwt.sign({uid:user.id,email:user.email}, JWT_SECRET, {expiresIn:'7d'}); }
-function auth(req,res,next){
-  const h=req.headers.authorization||''; const tok=h.startsWith('Bearer ')? h.slice(7):'';
-  try{ const p=jwt.verify(tok, JWT_SECRET); req.user=p; next(); }catch(e){ return res.status(401).json({error:'UNAUTHORIZED'}); }
-}
-function adminOnly(req,res,next){
-  if (!ADMIN_TOKEN || req.headers['x-admin-token'] !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'UNAUTHORIZED' });
+// ---- auth ----
+app.post('/auth/register', (req,res)=>{
+  const { email, password, company } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error:'email and password required' });
+  const db = readDB();
+  if (db.users.find(u=>u.email.toLowerCase()===String(email).toLowerCase())) {
+    return res.status(400).json({ error:'email already exists' });
   }
-  next();
-}
+  const user = { id: uuid(), email, company: company||null, passwordHash: bcrypt.hashSync(password,10), createdAt: new Date().toISOString() };
+  db.users.push(user); writeDB(db);
+  res.json({ token: createToken(user), user: { id:user.id, email:user.email, company:user.company } });
+});
 
-// ---- Auth ----
-app.post('/auth/register', async (req,res)=>{
-  const {email,password,company_name} = req.body||{};
-  if(!email || !password) return res.status(400).json({error:'email & password required'});
-  const hash = await bcrypt.hash(password, 10);
-  try{
-    const r = await db.run('INSERT INTO users(email,password_hash,company_name) VALUES (?,?,?)', [email.trim().toLowerCase(), hash, company_name||null]);
-    await db.run('INSERT INTO settings(user_id) VALUES (?)', [r.lastID]);
-    const user = await db.get('SELECT id,email,company_name FROM users WHERE id=?',[r.lastID]);
-    return res.json({token:sign(user), user});
-  }catch(e){
-    if(String(e).includes('UNIQUE')) return res.status(409).json({error:'EMAIL_IN_USE'});
-    return res.status(500).json({error:'REG_FAILED', details:String(e)});
+app.post('/auth/login', (req,res)=>{
+  const { email, password } = req.body || {};
+  const db = readDB();
+  const user = db.users.find(u=>u.email.toLowerCase()===String(email||'').toLowerCase());
+  if (!user) return res.status(400).json({ error:'invalid credentials' });
+  const ok = bcrypt.compareSync(password||'', user.passwordHash);
+  if (!ok) return res.status(400).json({ error:'invalid credentials' });
+  res.json({ token: createToken(user), user: { id:user.id, email:user.email, company:user.company } });
+});
+
+app.get('/me', auth, (req,res)=>{
+  const db = readDB();
+  const user = db.users.find(u=>u.id===req.user.id);
+  res.json({ id:user.id, email:user.email, company:user.company });
+});
+
+// ---- transactions ----
+app.get('/transactions', auth, (req,res)=>{
+  const { type, frm, to, employee } = req.query;
+  const db = readDB();
+  let list = db.transactions;
+  if (type) list = list.filter(t=>t.type===type);
+  if (employee) list = list.filter(t=>String(t.employee||'').toLowerCase()===String(employee).toLowerCase());
+  if (frm) list = list.filter(t=>new Date(t.date) >= new Date(frm));
+  if (to)  list = list.filter(t=>new Date(t.date) <= new Date(to));
+  res.json(list);
+});
+
+app.post('/transactions', auth, (req,res)=>{
+  const t = req.body || {};
+  if (!t.date || !t.type || !t.amount) return res.status(400).json({ error:'date, type, amount required' });
+  if (!['income','expense'].includes(t.type)) return res.status(400).json({ error:'type must be income or expense' });
+  const taxValue = Number(t.amount) * Number(t.taxPercent||0) / 100;
+  const row = {
+    id: uuid(), date: t.date, type: t.type, category: t.category || null,
+    description: t.description || null, paymentMethod: t.paymentMethod || null,
+    reference: t.reference || null, project: t.project || null,
+    employee: t.employee || null, party: t.party || null,
+    amount: Number(t.amount), taxPercent: Number(t.taxPercent||0), taxValue,
+    total: (t.type==='expense'? -1:1) * (Number(t.amount)+taxValue),
+    createdBy: req.user.id, createdAt: new Date().toISOString()
+  };
+  const db = readDB(); db.transactions.push(row); writeDB(db); res.json(row);
+});
+
+app.put('/transactions/:id', auth, (req,res)=>{
+  const db = readDB();
+  const idx = db.transactions.findIndex(x=>x.id===req.params.id);
+  if (idx===-1) return res.status(404).json({ error:'not found' });
+  const t = { ...db.transactions[idx], ...req.body };
+  t.taxValue = Number(t.amount) * Number(t.taxPercent||0) / 100;
+  t.total = (t.type==='expense'? -1:1) * (Number(t.amount)+t.taxValue);
+  db.transactions[idx] = t; writeDB(db); res.json(t);
+});
+
+app.delete('/transactions/:id', auth, (req,res)=>{
+  const db = readDB(); const before = db.transactions.length;
+  db.transactions = db.transactions.filter(x=>x.id!==req.params.id);
+  writeDB(db); res.json({ ok:true, deleted: before - db.transactions.length });
+});
+
+// ---- debts ----
+app.get('/debts', auth, (req,res)=> res.json(readDB().debts));
+
+app.post('/debts', auth, (req,res)=>{
+  const d = req.body || {};
+  if (!d.date || !d.employee || !d.kind) return res.status(400).json({ error:'date, employee, kind required' });
+  const row = { id: uuid(), date:d.date, employee:d.employee, employeeId:d.employeeId||null,
+    kind:d.kind, description:d.description||null, plus:Number(d.plus||0), minus:Number(d.minus||0),
+    createdBy:req.user.id, createdAt:new Date().toISOString() };
+  const db = readDB(); db.debts.push(row); writeDB(db); res.json(row);
+});
+
+app.put('/debts/:id', auth, (req,res)=>{
+  const db = readDB();
+  const idx = db.debts.findIndex(x=>x.id===req.params.id);
+  if (idx===-1) return res.status(404).json({ error:'not found' });
+  db.debts[idx] = { ...db.debts[idx], ...req.body }; writeDB(db); res.json(db.debts[idx]);
+});
+
+app.delete('/debts/:id', auth, (req,res)=>{
+  const db = readDB(); const before = db.debts.length;
+  db.debts = db.debts.filter(x=>x.id!==req.params.id);
+  writeDB(db); res.json({ ok:true, deleted: before - db.debts.length });
+});
+
+app.get('/debts/balances', auth, (req,res)=>{
+  const db = readDB();
+  const map = {};
+  for (const d of db.debts) {
+    const k = d.employee || '—';
+    if (!map[k]) map[k] = { employee:k, advances:0, repays:0, balance:0 };
+    map[k].advances += Number(d.plus||0);
+    map[k].repays += Number(d.minus||0);
+    map[k].balance = map[k].advances - map[k].repays;
   }
+  res.json(Object.values(map));
 });
 
-app.post('/auth/login', async (req,res)=>{
-  const {email,password} = req.body||{};
-  const user = await db.get('SELECT * FROM users WHERE email=?',[String(email||'').trim().toLowerCase()]);
-  if(!user) return res.status(401).json({error:'INVALID_CREDENTIALS'});
-  const ok = await bcrypt.compare(password||'', user.password_hash);
-  if(!ok) return res.status(401).json({error:'INVALID_CREDENTIALS'});
-  return res.json({token:sign(user), user:{id:user.id,email:user.email,company_name:user.company_name}});
+// ---- settings ----
+app.get('/settings', auth, (req,res)=> res.json(readDB().settings || {}));
+app.put('/settings', auth, (req,res)=>{
+  const db = readDB(); db.settings = { ...(db.settings||{}), ...(req.body||{}) }; writeDB(db); res.json(db.settings);
 });
 
-app.get('/me', auth, async (req,res)=>{
-  const user = await db.get('SELECT id,email,company_name FROM users WHERE id=?',[req.user.uid]);
-  const settings = await db.get('SELECT currency,tax_income,tax_expense,monthly_expense_cap FROM settings WHERE user_id=?',[req.user.uid]);
-  res.json({user,settings});
+// ---- export/import ----
+app.get('/export', auth, (req,res)=> res.json(readDB()));
+app.post('/import', auth, (req,res)=>{
+  const { data } = req.body || {};
+  if (!data) return res.status(400).json({ error:'data required' });
+  writeDB(data); res.json({ ok:true });
 });
 
-// ---- Settings ----
-app.get('/settings', auth, async (req,res)=>{
-  const s = await db.get('SELECT currency,tax_income,tax_expense,monthly_expense_cap FROM settings WHERE user_id=?',[req.user.uid]);
-  res.json(s);
-});
-app.put('/settings', auth, async (req,res)=>{
-  const {currency,tax_income,tax_expense,monthly_expense_cap} = req.body||{};
-  await db.run('UPDATE settings SET currency=COALESCE(?,currency), tax_income=COALESCE(?,tax_income), tax_expense=COALESCE(?,tax_expense), monthly_expense_cap=COALESCE(?,monthly_expense_cap) WHERE user_id=?',
-    [currency, tax_income, tax_expense, monthly_expense_cap, req.user.uid]);
-  const s = await db.get('SELECT currency,tax_income,tax_expense,monthly_expense_cap FROM settings WHERE user_id=?',[req.user.uid]);
-  res.json(s);
-});
-
-// ---- Transactions ----
-app.get('/transactions', auth, async (req,res)=>{
-  const rows = await db.all('SELECT * FROM transactions WHERE user_id=? ORDER BY date DESC, created_at DESC', [req.user.uid]);
-  res.json(rows);
-});
-app.post('/transactions', auth, async (req,res)=>{
-  const {date,type,category,base,employee,notes} = req.body||{};
-  if(!date || !type || !category || base==null) return res.status(400).json({error:'Missing fields'});
-  const s = await db.get('SELECT tax_income,tax_expense FROM settings WHERE user_id=?',[req.user.uid]);
-  const rate = (type==='income'? (s.tax_income||0) : (s.tax_expense||0))/100.0;
-  const tax = Math.round((Number(base)||0)*rate*100)/100;
-  const total = Math.round(((Number(base)||0)+tax)*100)/100;
-  const r = await db.run('INSERT INTO transactions(user_id,date,type,category,base,tax,total,employee,notes) VALUES (?,?,?,?,?,?,?,?,?)',
-    [req.user.uid,date,type,category,base,tax,total,employee||null,notes||null]);
-  const row = await db.get('SELECT * FROM transactions WHERE id=?',[r.lastID]);
-  res.json(row);
-});
-app.put('/transactions/:id', auth, async (req,res)=>{
-  const id = Number(req.params.id);
-  const t = await db.get('SELECT * FROM transactions WHERE id=? AND user_id=?',[id, req.user.uid]);
-  if(!t) return res.status(404).json({error:'NOT_FOUND'});
-  const newVals = {...t, ...req.body};
-  const s = await db.get('SELECT tax_income,tax_expense FROM settings WHERE user_id=?',[req.user.uid]);
-  const rate = (newVals.type==='income'? (s.tax_income||0) : (s.tax_expense||0))/100.0;
-  const base = Number(newVals.base||0);
-  const tax = Math.round(base*rate*100)/100;
-  const total = Math.round((base+tax)*100)/100;
-  await db.run('UPDATE transactions SET date=?,type=?,category=?,base=?,tax=?,total=?,employee=?,notes=? WHERE id=? AND user_id=?',
-    [newVals.date,newVals.type,newVals.category,base,tax,total,newVals.employee||null,newVals.notes||null,id,req.user.uid]);
-  const row = await db.get('SELECT * FROM transactions WHERE id=?',[id]);
-  res.json(row);
-});
-app.delete('/transactions/:id', auth, async (req,res)=>{
-  await db.run('DELETE FROM transactions WHERE id=? AND user_id=?',[req.params.id, req.user.uid]);
-  res.json({ok:true});
-});
-
-// ---- Debts ----
-app.get('/debts', auth, async (req,res)=>{
-  const rows = await db.all('SELECT * FROM debts WHERE user_id=? ORDER BY date ASC, created_at ASC', [req.user.uid]);
-  res.json(rows);
-});
-app.post('/debts', auth, async (req,res)=>{
-  const {date,employee,kind,amount,notes} = req.body||{};
-  if(!date||!employee||!kind||amount==null) return res.status(400).json({error:'Missing fields'});
-  const amt = Number(amount||0); const delta = (kind==='advance'? +amt : -amt);
-  const r = await db.run('INSERT INTO debts(user_id,date,employee,kind,amount,delta,notes) VALUES (?,?,?,?,?,?,?)',
-    [req.user.uid,date,employee,kind,amt,delta,notes||null]);
-  const row = await db.get('SELECT * FROM debts WHERE id=?',[r.lastID]);
-  res.json(row);
-});
-app.put('/debts/:id', auth, async (req,res)=>{
-  const id = Number(req.params.id);
-  const d = await db.get('SELECT * FROM debts WHERE id=? AND user_id=?',[id, req.user.uid]);
-  if(!d) return res.status(404).json({error:'NOT_FOUND'});
-  const newVals = {...d, ...req.body};
-  const amt = Number(newVals.amount||0); const delta = (newVals.kind==='advance'? +amt : -amt);
-  await db.run('UPDATE debts SET date=?,employee=?,kind=?,amount=?,delta=?,notes=? WHERE id=? AND user_id=?',
-    [newVals.date,newVals.employee,newVals.kind,amt,delta,newVals.notes||null,id,req.user.uid]);
-  const row = await db.get('SELECT * FROM debts WHERE id=?',[id]);
-  res.json(row);
-});
-app.delete('/debts/:id', auth, async (req,res)=>{
-  await db.run('DELETE FROM debts WHERE id=? AND user_id=?',[req.params.id, req.user.uid]);
-  res.json({ok:true});
-});
-
-// ---- Admin backup endpoints (protected by X-Admin-Token) ----
-app.get('/admin/backup/json', adminOnly, async (req,res)=>{
-  const users = await db.all('SELECT id,email,company_name,created_at FROM users');
-  const settings = await db.all('SELECT * FROM settings');
-  const transactions = await db.all('SELECT * FROM transactions');
-  const debts = await db.all('SELECT * FROM debts');
-  res.setHeader('Content-Disposition', 'attachment; filename="backup.json"');
-  res.json({ users, settings, transactions, debts, exported_at: new Date().toISOString() });
-});
-app.get('/admin/backup/sqlite', adminOnly, async (req,res)=>{
-  res.setHeader('Content-Disposition', 'attachment; filename="data.db"');
-  res.sendFile(path.resolve(DB_PATH));
-});
-
-// ---- Health ----
-app.get('/', (req,res)=> res.json({ok:true, service:'finance-dashboard-api', db: DB_PATH}));
-
-app.listen(PORT, ()=> console.log('API listening on port', PORT));
+app.listen(PORT, ()=> console.log(`Finance API (ESM) running on ${PORT}`));
