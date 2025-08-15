@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>لوحة الشركة — تصميم احترافي</title>
+<style>
+:root{
+  --bg:#0b1020;--panel:#0e152b;--muted:#a9b1c7;--text:#e8ecf6;--brand:#5b8cff;--brand-2:#22c55e;--border:#1e2a46;--danger:#ef4444;
+  --shadow:0 10px 25px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);
+}
+*{box-sizing:border-box}html,body{margin:0;padding:0;background:linear-gradient(180deg,#0b1020,#0c142b 30%,#0b1020);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Noto Kufi Arabic,Noto Sans Arabic,Arial,sans-serif}
+.container{max-width:1180px;margin:0 auto;padding:16px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:14px 0}
+.brand{display:flex;gap:10px;align-items:center}
+.brand-badge{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#7aa5ff);box-shadow:var(--shadow)}
+.title{font-size:18px;font-weight:700}
+.actions{display:flex;gap:8px}
+button, .btn{background:linear-gradient(180deg,#121a33,#0e152b);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;box-shadow:var(--shadow)}
+button:hover,.btn:hover{border-color:var(--brand)}
+.card{background:linear-gradient(180deg,#0d152b,#0f1a33);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+.grid{display:grid;gap:14px}
+.grid-2{grid-template-columns:1fr 1fr}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+input,select{width:100%;padding:10px;border-radius:12px;border:1px solid var(--border);background:#0a1226;color:var(--text)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px;border-bottom:1px solid var(--border);text-align:right}
+th{color:var(--muted);font-weight:600}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.tab{padding:8px 12px;border-radius:10px;border:1px solid var(--border);cursor:pointer;background:#0e152b}
+.tab.active{border-color:var(--brand);color:#cfe0ff}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi{background:linear-gradient(180deg,#0f1833,#0d152b);border:1px solid var(--border);border-radius:16px;padding:14px}
+.kpi .n{font-size:22px;font-weight:800;margin-top:6px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#0a1226;border:1px solid var(--border);border-radius:12px;padding:10px 14px;z-index:1000}
+.toast.hidden{display:none}
+@media(max-width:980px){.grid-2,.grid-3{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="brand">
+      <div class="brand-badge"></div>
+      <div class="title">لوحة الشركة — تصميم احترافي (متصل بقاعدة بيانات)</div>
+    </div>
+    <div class="actions">
+      <button id="btnLogout">تسجيل خروج</button>
+      <button id="btnBackupNow">نسخ احتياطي الآن</button>
+      <button id="btnDlDB">تحميل قاعدة البيانات</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="auth">الدخول</div>
+    <div class="tab" data-tab="dashboard">الرئيسية</div>
+    <div class="tab" data-tab="transactions">العمليات</div>
+    <div class="tab" data-tab="debts">المديونيات</div>
+    <div class="tab" data-tab="settings">الإعدادات</div>
+  </div>
+
+  <div id="auth" class="card" style="">
+    <div class="grid grid-2">
+      <div>
+        <h3>تسجيل الدخول</h3>
+        <label>API URL (مرة واحدة)</label>
+        <input id="apiUrl" placeholder="مثال: https://your-api.onrender.com"/>
+        <label>الإيميل</label>
+        <input id="loginEmail" type="email"/>
+        <label>كلمة المرور</label>
+        <input id="loginPass" type="password"/>
+        <button id="btnLogin">دخول</button>
+      </div>
+      <div>
+        <h3>تسجيل جديد</h3>
+        <label>API URL (مرة واحدة)</label>
+        <input id="apiUrl2" placeholder="مثال: https://your-api.onrender.com"/>
+        <label>الإيميل</label>
+        <input id="regEmail" type="email"/>
+        <label>كلمة المرور</label>
+        <input id="regPass" type="password"/>
+        <label>اسم الشركة (اختياري)</label>
+        <input id="regCompany"/>
+        <button id="btnRegister">إنشاء</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboard" class="card" style="display:none">
+    <div class="section-title"><h3>لوحة المؤشرات</h3></div>
+    <div class="kpis">
+      <div class="kpi"><div>إجمالي الدخل</div><div class="n" id="kpiIncome">0</div></div>
+      <div class="kpi"><div>إجمالي المصروف</div><div class="n" id="kpiExpense">0</div></div>
+      <div class="kpi"><div>صافي الربح</div><div class="n" id="kpiNet">0</div></div>
+      <div class="kpi"><div>إجمالي المديونيات</div><div class="n" id="kpiDebts">0</div></div>
+    </div>
+  </div>
+
+  <div id="transactions" class="card" style="display:none">
+    <div class="grid grid-2">
+      <div>
+        <h3>إضافة عملية</h3>
+        <label>التاريخ</label><input id="txDate" type="date"/>
+        <label>النوع</label><select id="txType"><option value="income">دخل</option><option value="expense">مصروف</option></select>
+        <label>الفئة</label><input id="txCat"/>
+        <label>المبلغ قبل الضريبة</label><input id="txBase" inputmode="decimal"/>
+        <label>الموظف</label><input id="txEmp"/>
+        <label>ملاحظات</label><input id="txNotes"/>
+        <button id="btnAddTx">إضافة</button>
+      </div>
+      <div>
+        <h3>العمليات</h3>
+        <table id="txTable"><thead><tr><th>التاريخ</th><th>النوع</th><th>الفئة</th><th>قبل الضريبة</th><th>الضريبة</th><th>الإجمالي</th><th>موظف</th><th>حذف</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div id="debts" class="card" style="display:none">
+    <div class="grid grid-2">
+      <div>
+        <h3>إضافة مديونية</h3>
+        <label>التاريخ</label><input id="debtDate" type="date"/>
+        <label>الموظف</label><input id="debtEmp"/>
+        <label>النوع</label><select id="debtKind"><option value="advance">سلفة/سحب</option><option value="repay">سداد</option></select>
+        <label>المبلغ</label><input id="debtAmt" inputmode="decimal"/>
+        <label>ملاحظات</label><input id="debtNotes"/>
+        <button id="btnAddDebt">إضافة</button>
+      </div>
+      <div>
+        <h3>سجل المديونيات</h3>
+        <table id="debtTable"><thead><tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>المبلغ</th><th>الرصيد بعد</th><th>حذف</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings" class="card" style="display:none">
+    <div class="grid grid-3">
+      <div><label>العملة</label><input id="stCurrency" placeholder="ر.س"></div>
+      <div><label>ضريبة الدخل %</label><input id="stTaxIncome" type="number" step="0.01"></div>
+      <div><label>ضريبة المصروف %</label><input id="stTaxExpense" type="number" step="0.01"></div>
+      <div><label>حد المصروف الشهري</label><input id="stCap" type="number" step="0.01"></div>
+      <div><label>رمز النسخ الاحتياطي (Admin Token)</label><input id="adminToken" placeholder="يوضع مرة واحدة"></div>
+      <div style="display:flex;align-items:end"><button id="btnSaveSettings">حفظ</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  const fmt=n=>new Intl.NumberFormat('ar-SA',{maximumFractionDigits:2}).format(n||0);
+  const $=s=>document.querySelector(s);
+  const tabs=document.querySelectorAll('.tab');
+  tabs.forEach(t=> t.onclick=()=>{ tabs.forEach(x=>x.classList.remove('active')); t.classList.add('active'); ['auth','dashboard','transactions','debts','settings'].forEach(id=> document.getElementById(id).style.display='none'); document.getElementById(t.dataset.tab).style.display=''; });
+  const toast=m=>{ const t=$('#toast'); t.textContent=m; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),2000); };
+
+  let API = localStorage.getItem('API_URL') || '';
+  let token = localStorage.getItem('token') || '';
+  let adminTok = localStorage.getItem('ADMIN_TOKEN') || '';
+
+  function setAuthUI(logged){
+    document.querySelector('[data-tab="dashboard"]').style.display = logged? '':'none';
+    document.querySelector('[data-tab="transactions"]').style.display = logged? '':'none';
+    document.querySelector('[data-tab="debts"]').style.display = logged? '':'none';
+    document.querySelector('[data-tab="settings"]').style.display = logged? '':'none';
+    document.querySelector('[data-tab="auth"]').click();
+    document.getElementById('auth').style.display = logged? 'none':'';
+    document.getElementById('dashboard').style.display = logged? '':'none';
+  }
+
+  async function api(path, opts={}){
+    if(!API){ API = prompt('رابط الـAPI (مثال: https://your-api.onrender.com)',''); if(API) localStorage.setItem('API_URL', API); }
+    const res = await fetch(API+path, { headers: {'Content-Type':'application/json','Authorization': token?('Bearer '+token):''}, ...opts });
+    if(!res.ok){ const e = await res.json().catch(()=>({error:'ERR'})); throw new Error(e.error||('HTTP '+res.status)); }
+    return res.json();
+  }
+
+  document.getElementById('btnRegister').onclick = async ()=>{
+    try{
+      const _api = $('#apiUrl2').value || $('#apiUrl').value || API || '';
+      if(_api){ API=_api; localStorage.setItem('API_URL', API); }
+      const data = await api('/auth/register',{method:'POST', body: JSON.stringify({email:$('#regEmail').value, password:$('#regPass').value, company_name:$('#regCompany').value})});
+      token = data.token; localStorage.setItem('token', token); setAuthUI(true); await refreshAll(); toast('تم التسجيل والدخول');
+    }catch(e){ toast('فشل التسجيل: '+e.message); }
+  };
+  document.getElementById('btnLogin').onclick = async ()=>{
+    try{
+      const _api = $('#apiUrl').value || API || '';
+      if(_api){ API=_api; localStorage.setItem('API_URL', API); }
+      const data = await api('/auth/login',{method:'POST', body: JSON.stringify({email:$('#loginEmail').value, password:$('#loginPass').value})});
+      token = data.token; localStorage.setItem('token', token); setAuthUI(true); await refreshAll(); toast('تم الدخول');
+    }catch(e){ toast('بيانات الدخول غير صحيحة'); }
+  };
+  document.getElementById('btnLogout').onclick = ()=>{ token=''; localStorage.removeItem('token'); setAuthUI(false); };
+
+  document.getElementById('btnSaveSettings').onclick = async ()=>{
+    try{
+      if($('#adminToken').value){ adminTok=$('#adminToken').value; localStorage.setItem('ADMIN_TOKEN', adminTok); }
+      const s = await api('/settings',{method:'PUT',body:JSON.stringify({currency:$('#stCurrency').value,tax_income:Number($('#stTaxIncome').value),tax_expense:Number($('#stTaxExpense').value),monthly_expense_cap:Number($('#stCap').value)})});
+      toast('تم حفظ الإعدادات'); await refreshAll();
+    }catch(e){ toast('خطأ حفظ الإعدادات'); }
+  };
+
+  document.getElementById('btnAddTx').onclick = async ()=>{
+    try{
+      const t = await api('/transactions',{method:'POST', body: JSON.stringify({date:$('#txDate').value||new Date().toISOString().slice(0,10), type:$('#txType').value, category:$('#txCat').value, base:Number(($('#txBase').value||'0').replace(',','.')), employee:$('#txEmp').value, notes:$('#txNotes').value})});
+      $('#txCat').value=''; $('#txBase').value=''; $('#txEmp').value=''; $('#txNotes').value='';
+      await loadTransactions();
+    }catch(e){ toast('فشل إضافة العملية: '+e.message); }
+  };
+  async function loadTransactions(){
+    const rows = await api('/transactions');
+    const tb = document.querySelector('#txTable tbody'); tb.innerHTML='';
+    for(const t of rows){
+      const tr=document.createElement('tr');
+      tr.innerHTML = '<td>'+t.date+'</td><td>'+(t.type==='income'?'دخل':'مصروف')+'</td><td>'+t.category+'</td><td>'+fmt(t.base)+'</td><td>'+fmt(t.tax)+'</td><td>'+fmt(t.total)+'</td><td>'+(t.employee||'')+'</td><td><button data-id="'+t.id+'">حذف</button></td>';
+      tr.querySelector('button').onclick = async ()=>{ await api('/transactions/'+t.id,{method:'DELETE'}); await loadTransactions(); };
+      tb.appendChild(tr);
+    }
+  }
+
+  document.getElementById('btnAddDebt').onclick = async ()=>{
+    try{
+      await api('/debts',{method:'POST', body: JSON.stringify({date:$('#debtDate').value||new Date().toISOString().slice(0,10), employee:$('#debtEmp').value, kind:$('#debtKind').value, amount:Number(($('#debtAmt').value||'0').replace(',','.')), notes:$('#debtNotes').value})});
+      $('#debtEmp').value=''; $('#debtAmt').value=''; $('#debtNotes').value='';
+      await loadDebts();
+    }catch(e){ toast('فشل إضافة المديونية: '+e.message); }
+  };
+  async function loadDebts(){
+    const rows = await api('/debts');
+    const tb = document.querySelector('#debtTable tbody'); tb.innerHTML='';
+    const bal={};
+    for(const d of rows){
+      bal[d.employee]=(bal[d.employee]||0)+d.delta;
+      const tr=document.createElement('tr');
+      tr.innerHTML = '<td>'+d.date+'</td><td>'+d.employee+'</td><td>'+(d.kind==='advance'?'سلفة/سحب':'سداد')+'</td><td>'+fmt(d.amount)+'</td><td>'+fmt(bal[d.employee])+'</td><td><button data-id="'+d.id+'">حذف</button></td>';
+      tr.querySelector('button').onclick = async ()=>{ await api('/debts/'+d.id,{method:'DELETE'}); await loadDebts(); };
+      tb.appendChild(tr);
+    }
+  }
+
+  async function loadKPIs(){
+    const rows = await api('/transactions');
+    const inc = rows.filter(t=>t.type==='income').reduce((s,t)=>s+t.total,0);
+    const exp = rows.filter(t=>t.type==='expense').reduce((s,t)=>s+t.total,0);
+    const net = inc-exp;
+    $('#kpiIncome').textContent = fmt(inc);
+    $('#kpiExpense').textContent = fmt(exp);
+    $('#kpiNet').textContent = fmt(net);
+
+    const debts = await api('/debts');
+    const dtot = Object.values(debts.reduce((m,d)=>{ m[d.employee]=(m[d.employee]||0)+d.delta; return m; },{})).reduce((s,v)=>s+v,0);
+    $('#kpiDebts').textContent = fmt(dtot);
+  }
+
+  document.getElementById('btnBackupNow').onclick = async ()=>{
+    try{
+      if(!adminTok){ adminTok = prompt('أدخل رمز النسخ الاحتياطي (Admin Token)'); localStorage.setItem('ADMIN_TOKEN', adminTok||''); }
+      const res = await fetch((API||'') + '/admin/backup/json', { headers: {'X-Admin-Token': adminTok} });
+      if(!res.ok) throw new Error('تحقق من الرمز');
+      const blob = await res.blob();
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup.json'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },100);
+      toast('تم تنزيل النسخة الاحتياطية (JSON)');
+    }catch(e){ toast('فشل النسخ الاحتياطي: '+e.message); }
+  };
+  document.getElementById('btnDlDB').onclick = async ()=>{
+    try{
+      if(!adminTok){ adminTok = prompt('أدخل رمز النسخ الاحتياطي (Admin Token)'); localStorage.setItem('ADMIN_TOKEN', adminTok||''); }
+      const res = await fetch((API||'') + '/admin/backup/sqlite', { headers: {'X-Admin-Token': adminTok} });
+      if(!res.ok) throw new Error('تحقق من الرمز');
+      const blob = await res.blob();
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='data.db'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },100);
+      toast('تم تنزيل قاعدة البيانات (SQLite)');
+    }catch(e){ toast('فشل التحميل: '+e.message); }
+  };
+
+  async function refreshAll(){ await Promise.all([loadKPIs(), loadTransactions(), loadDebts(), loadSettings()]); }
+  async function loadSettings(){
+    const s = await api('/settings');
+    $('#stCurrency').value=s.currency||'ر.س';
+    $('#stTaxIncome').value=s.tax_income||15;
+    $('#stTaxExpense').value=s.tax_expense||15;
+    $('#stCap').value=s.monthly_expense_cap||50000;
+  }
+
+  if(API) $('#apiUrl').value = API;
+  if(token){ setAuthUI(true); refreshAll().catch(()=> setAuthUI(false)); }
+})();
+</script>
+</body>
+</html>
